@@ -1,0 +1,9 @@
+[codec]
+0x10ec0287 0x17aa3856 0
+
+[pincfg]
+# bass speakers (feed I2S of the CS35L41 amps); BIOS marks the pin unconnected
+0x17 0x90170121
+# undo mic pin changes from the borrowed ASUS fixup chain
+0x19 0x03a11030
+0x1b 0x411111f0
