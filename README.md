@@ -119,11 +119,21 @@ warns about them. Add the cpio to those entries by hand.
   the test machine, so the defaults are used. So far this has worked fine.
 - The Cirrus/Lenovo firmware files are not part of this repository, because
   they may not be redistributed. The installer downloads them from Lenovo.
-- The proper fix belongs in the kernel: `CLSA0102` support in `scan.c`,
-  `serial-multi-instantiate`, and the `cs35l41` property quirks, plus an ALC287
-  quirk for `17aa:3856`. The firmware belongs in linux-firmware.
+- **A kernel patch series doing this properly has been submitted**, see
+  [Upstream](#upstream) below. Once it is merged, only the firmware is still needed.
 - No warranty. The author tested this on one laptop. It changes how your
   speakers are driven, so use it at your own risk.
+
+## Upstream
+
+A patch series adding this to the kernel was sent on 2026-09-20:
+[[PATCH 0/4] Add support for the bass speakers of Lenovo Yoga Slim 7 Carbon 14ACN6](https://lore.kernel.org/linux-sound/20260920092808.17234-1-i.pavluhin@ya.ru/T/).
+
+It adds `CLSA0102` to `drivers/acpi/scan.c`, `serial-multi-instantiate` and the
+`cs35l41` property quirks, and an ALC287 codec quirk for `17aa:3856`. Tested on
+a patched 7.3-rc1 kernel: all four speakers work with no ACPI override and no
+module options, so this repository is then only needed for the firmware, until
+Cirrus adds `cs35l41-dsp1-spk-prot-17aa3856*` to linux-firmware.
 
 ## Кратко по-русски
 
