@@ -9,8 +9,10 @@ Known reports: [kernel bugzilla 215632](https://bugzilla.kernel.org/show_bug.cgi
 [Lenovo forum](https://forums.lenovo.com/t5/Ubuntu/Yoga-Slim-7-Carbon-14ACN6-Linux-Audio/m-p/5158856),
 [milkovsky/Linux-on-Lenovo-Slim-7-Carbon-AMD](https://github.com/milkovsky/Linux-on-Lenovo-Slim-7-Carbon-AMD#speakers).
 
-**Status:** works on Kubuntu 24.04 with kernel 7.0 (the Ubuntu HWE kernel).
-It needs no kernel rebuild and no custom modules.
+**Status:** the fix is now [in the kernel](#upstream) (accepted 2026-09-29), so on a
+recent enough kernel you will not need this at all. On older kernels the scripts here
+still work: Kubuntu 24.04 with kernel 7.0 (the Ubuntu HWE kernel), no kernel rebuild
+and no custom modules.
 
 ## Requirements
 
@@ -126,14 +128,31 @@ warns about them. Add the cpio to those entries by hand.
 
 ## Upstream
 
-A patch series adding this to the kernel was sent on 2026-09-20:
-[[PATCH 0/4] Add support for the bass speakers of Lenovo Yoga Slim 7 Carbon 14ACN6](https://lore.kernel.org/linux-sound/20260920092808.17234-1-i.pavluhin@ya.ru/T/).
+**The kernel fix was accepted on 2026-09-29.** All four patches are in the ALSA
+`sound.git` tree, branch `for-next`, so they should land in a mainline release
+(likely 7.4) and reach distributions from there:
 
-It adds `CLSA0102` to `drivers/acpi/scan.c`, `serial-multi-instantiate` and the
-`cs35l41` property quirks, and an ALC287 codec quirk for `17aa:3856`. Tested on
-a patched 7.3-rc1 kernel: all four speakers work with no ACPI override and no
-module options, so this repository is then only needed for the firmware, until
-Cirrus adds `cs35l41-dsp1-spk-prot-17aa3856*` to linux-firmware.
+| Commit | Patch |
+|---|---|
+| `e4f960371f` | ACPI: scan: Add CLSA0102 to the serial bus ignore list |
+| `5a0f971766` | platform/x86: serial-multi-instantiate: Add CLSA0102 |
+| `7cd9f9f4e1` | ALSA: hda: cs35l41: Add support for CLSA0102 |
+| `2afb053cf1` | ALSA: hda/realtek: Add quirk for Lenovo Yoga Slim 7 Carbon 14ACN6 |
+
+Discussion: [[PATCH 0/4] Add support for the bass speakers of Lenovo Yoga Slim 7 Carbon 14ACN6](https://lore.kernel.org/linux-sound/20260920092808.17234-1-i.pavluhin@ya.ru/T/).
+Cirrus also said they would submit the DSP firmware for this laptop to linux-firmware.
+
+**So once you run a kernel with those patches and linux-firmware ships
+`cs35l41-dsp1-spk-prot-17aa3856*`, you do not need this repository at all.**
+Until then it is still the way to get the bass speakers working, and if you
+already installed it, remove it before booting a patched kernel:
+
+```sh
+sudo ./uninstall.sh   # the ACPI override and the kernel patches conflict
+```
+
+The override renames the ACPI device to `CSC3551`, while the in-kernel support
+looks for `CLSA0102`, so with both in place the amplifiers never bind.
 
 ## Кратко по-русски
 
