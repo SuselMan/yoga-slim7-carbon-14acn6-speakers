@@ -13,18 +13,31 @@ echo "==> Removing files"
 rm -fv "$CPIO" /etc/modprobe.d/$NAME.conf /lib/firmware/hda-yoga-14acn6.fw \
 	"$CIRRUS.wmfw" "$CIRRUS-l0.bin" "$CIRRUS-r0.bin"
 
-echo "==> Removing the ACPI override from GRUB"
 cpio_name=$(basename "$CPIO")
-current=$(sed -n 's/^GRUB_EARLY_INITRD_LINUX_CUSTOM=//p' /etc/default/grub | tr -d "\"'")
-if echo " $current " | grep -q " $cpio_name "; then
-	new=$(echo " $current " | sed "s| $cpio_name | |" | xargs)
-	if [ -n "$new" ]; then
-		sed -i "s|^GRUB_EARLY_INITRD_LINUX_CUSTOM=.*|GRUB_EARLY_INITRD_LINUX_CUSTOM=\"$new\"|" /etc/default/grub
-	else
-		sed -i '/^GRUB_EARLY_INITRD_LINUX_CUSTOM=/d' /etc/default/grub
+if command -v update-grub >/dev/null 2>&1 && [ -f /etc/default/grub ]; then
+	echo "==> Removing the ACPI override from GRUB"
+	current=$(sed -n 's/^GRUB_EARLY_INITRD_LINUX_CUSTOM=//p' /etc/default/grub | tr -d "\"'")
+	if echo " $current " | grep -q " $cpio_name "; then
+		new=$(echo " $current " | sed "s| $cpio_name | |" | xargs)
+		if [ -n "$new" ]; then
+			sed -i "s|^GRUB_EARLY_INITRD_LINUX_CUSTOM=.*|GRUB_EARLY_INITRD_LINUX_CUSTOM=\"$new\"|" /etc/default/grub
+		else
+			sed -i '/^GRUB_EARLY_INITRD_LINUX_CUSTOM=/d' /etc/default/grub
+		fi
 	fi
+	update-grub
 fi
-update-grub
+
+ESP=/boot/efi
+INITRD_LINE="initrd /EFI/$cpio_name"
+if [ -d "$ESP/loader/entries" ]; then
+	echo "==> Removing the ACPI override from systemd-boot"
+	rm -fv "$ESP/EFI/$cpio_name"
+	for entry in "$ESP"/loader/entries/Pop_OS-*.conf; do
+		[ -f "$entry" ] || continue
+		sed -i "\|^$INITRD_LINE$|d" "$entry"
+	done
+fi
 
 rm -rf "$STATE"
 echo "==> Done. Reboot to return to the stock configuration."
