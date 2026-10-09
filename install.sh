@@ -80,9 +80,19 @@ case $lockdown in
 *) die "kernel lockdown is active ($lockdown), usually because of Secure Boot. The ACPI table upgrade is blocked under lockdown; disable Secure Boot first." ;;
 esac
 
-for cmd in iasl innoextract cpio python3 curl update-grub; do
+for cmd in iasl innoextract cpio python3 curl; do
 	command -v $cmd >/dev/null || die "'$cmd' not found. On Ubuntu/Debian: sudo apt install acpica-tools innoextract cpio python3 curl"
 done
+
+BOOTLOADER=
+if command -v update-grub >/dev/null 2>&1 && [ -f /etc/default/grub ]; then
+	BOOTLOADER=grub
+elif command -v bootctl >/dev/null 2>&1 && [ -d /boot/efi/loader/entries ]; then
+	BOOTLOADER=systemd-boot
+else
+	die "neither a usable GRUB installation nor systemd-boot was found"
+fi
+info "Detected boot loader: $BOOTLOADER"
 
 # Needed kernel pieces: generic CS35L41 HDA driver and the ASUS quirk chain we borrow
 kver=$(uname -r)
@@ -109,21 +119,49 @@ iasl -p "$WORK/cpio/kernel/firmware/acpi/cs35l41-spk1" "$HERE/acpi/cs35l41-spk1.
 (cd "$WORK/cpio" && find kernel | cpio -H newc --create --owner=0:0 --quiet > "$WORK/acpi.cpio")
 run install -m644 "$WORK/acpi.cpio" "$CPIO"
 
-info "Adding the override to GRUB"
 cpio_name=$(basename "$CPIO")
-current=$(sed -n 's/^GRUB_EARLY_INITRD_LINUX_CUSTOM=//p' /etc/default/grub | tr -d "\"'")
-if ! echo " $current " | grep -q " $cpio_name "; then
-	new=$(echo "$current $cpio_name" | xargs)
-	run cp /etc/default/grub "$STATE/grub.default.bak"
-	if [ -n "$current" ] || grep -q '^GRUB_EARLY_INITRD_LINUX_CUSTOM=' /etc/default/grub; then
-		run sed -i "s|^GRUB_EARLY_INITRD_LINUX_CUSTOM=.*|GRUB_EARLY_INITRD_LINUX_CUSTOM=\"$new\"|" /etc/default/grub
-	elif [ $DRY_RUN = 1 ]; then
-		echo "    [dry-run] append GRUB_EARLY_INITRD_LINUX_CUSTOM=\"$new\" to /etc/default/grub"
-	else
-		echo "GRUB_EARLY_INITRD_LINUX_CUSTOM=\"$new\"" >> /etc/default/grub
+if [ "$BOOTLOADER" = grub ]; then
+	info "Adding the override to GRUB"
+	current=$(sed -n 's/^GRUB_EARLY_INITRD_LINUX_CUSTOM=//p' /etc/default/grub | tr -d "\"'")
+	if ! echo " $current " | grep -q " $cpio_name "; then
+		new=$(echo "$current $cpio_name" | xargs)
+		run cp /etc/default/grub "$STATE/grub.default.bak"
+		if [ -n "$current" ] || grep -q '^GRUB_EARLY_INITRD_LINUX_CUSTOM=' /etc/default/grub; then
+			run sed -i "s|^GRUB_EARLY_INITRD_LINUX_CUSTOM=.*|GRUB_EARLY_INITRD_LINUX_CUSTOM=\"$new\"|" /etc/default/grub
+		elif [ $DRY_RUN = 1 ]; then
+			echo "    [dry-run] append GRUB_EARLY_INITRD_LINUX_CUSTOM=\"$new\" to /etc/default/grub"
+		else
+			echo "GRUB_EARLY_INITRD_LINUX_CUSTOM=\"$new\"" >> /etc/default/grub
+		fi
 	fi
+	run update-grub
+else
+	info "Adding the override to systemd-boot"
+	ESP=/boot/efi
+	ESP_CPIO="$ESP/EFI/$cpio_name"
+	INITRD_LINE="initrd /EFI/$cpio_name"
+	run install -Dm644 "$WORK/acpi.cpio" "$ESP_CPIO"
+	found_entry=0
+	for entry in "$ESP"/loader/entries/Pop_OS-*.conf; do
+		[ -f "$entry" ] || continue
+		found_entry=1
+		if grep -Fqx "$INITRD_LINE" "$entry"; then
+			continue
+		fi
+		if [ $DRY_RUN = 1 ]; then
+			echo "    [dry-run] add '$INITRD_LINE' before the first initrd line in $entry"
+		else
+			awk -v line="$INITRD_LINE" '''
+				BEGIN { added=0 }
+				!added && $1 == "initrd" { print line; added=1 }
+				{ print }
+				END { if (!added) print line }
+			''' "$entry" > "$WORK/loader-entry.conf"
+			cp "$WORK/loader-entry.conf" "$entry"
+		fi
+	done
+	[ "$found_entry" = 1 ] || die "no Pop!_OS systemd-boot entries found in $ESP/loader/entries"
 fi
-run update-grub
 
 # --- HDA codec: bass pin + CS35L41 binding ----------------------------------
 
@@ -165,7 +203,8 @@ run install -Dm644 "$ext/$FW_R0" "$CIRRUS-r0.bin"
 
 # --- done ---------------------------------------------------------------
 
-if grep -q '^\s*initrd' /boot/grub/grub.cfg 2>/dev/null &&
+if [ "$BOOTLOADER" = grub ] &&
+	grep -q '^\s*initrd' /boot/grub/grub.cfg 2>/dev/null &&
 	grep -E '^\s*initrd' /boot/grub/grub.cfg | grep -vq "$cpio_name"; then
 	warn "some GRUB entries don't load $cpio_name (custom entries, e.g. from grub-customizer)."
 	warn "The bass speakers won't work when booting those entries."
